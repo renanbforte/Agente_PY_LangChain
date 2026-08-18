@@ -1,0 +1,43 @@
+# =============================================================================
+# pyproject.toml
+# -----------------------------------------------------------------------------
+# Este arquivo é o "documento de identidade" do projeto Python.
+# O gerenciador `uv` lê este arquivo para saber:
+#   1. O nome e a versão do seu projeto.
+#   2. Qual versão mínima do Python é necessária.
+#   3. Quais bibliotecas (dependências) precisam ser instaladas.
+# Quando você roda `uv sync`, o uv lê a lista [project.dependencies] abaixo,
+# baixa tudo e cria a pasta .venv (ambiente virtual isolado).
+# =============================================================================
+
+[project]
+# Nome do projeto. Pode ser qualquer identificador simples (sem espaços).
+name = "langchain1-0"
+
+# Versão do SEU projeto (não das bibliotecas). Começe em 0.1.0.
+version = "0.1.0"
+
+# Uma descrição curta do que o projeto faz.
+description = "Agente de IA didatico com LangChain + LangGraph + PostgreSQL"
+
+# Versão mínima do Python. LangChain 1.0 exige Python 3.10 ou mais novo.
+requires-python = ">=3.10"
+
+# Esta é a lista de dependências: as bibliotecas que o projeto usa.
+# Cada linha é o nome do pacote no PyPI (repositório oficial de pacotes Python).
+dependencies = [
+    "langchain",                       # O "guarda-chuva" principal do LangChain.
+    "langchain-core",                  # As peças fundamentais (prompts, mensagens, parsers).
+    "langchain-openai",                # Conector para modelos da OpenAI (gpt-3.5-turbo etc.).
+    "langchain-google-genai",          # Conector para o Google Gemini (para trocar depois).
+    "langchain-tavily",                # A ferramenta (tool) de busca na web Tavily.
+    "langgraph",                       # Framework que monta o "grafo" de execução do agente.
+    "langgraph-checkpoint-postgres",   # Salva a memória do agente no PostgreSQL (checkpointer).
+    "psycopg[binary]",                 # Driver para o Python conversar com o PostgreSQL.
+    "python-dotenv",                   # Lê o arquivo .env e carrega os segredos em memória.
+    "requests>=2.34.2",               # Cliente HTTP para tools que chamam APIs (ex.: ViaCEP).
+    "langgraph-cli[inmem]>=0.4.31",   # Roda o LangGraph Studio local: `uv run langgraph dev`.
+    "langchain-community>=0.4.2",     # SQLDatabaseToolkit (consulta o banco em linguagem natural).
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.3",
+]

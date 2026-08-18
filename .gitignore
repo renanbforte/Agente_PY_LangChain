@@ -1,0 +1,22 @@
+# =============================================================================
+# .gitignore
+# -----------------------------------------------------------------------------
+# Este arquivo diz ao Git QUAIS arquivos NÃO devem ser enviados ao GitHub.
+# É a sua rede de segurança contra vazamento de segredos.
+# Qualquer caminho listado aqui é IGNORADO pelo Git (nunca é comitado).
+# =============================================================================
+
+# NUNCA envie o .env: ele contém suas chaves de API e a senha do banco.
+.env
+
+# O ambiente virtual (bibliotecas instaladas). É pesado e recriável com `uv sync`.
+.venv/
+
+# Cache de arquivos compilados do Python. Lixo temporário, não serve pro repositório.
+__pycache__/
+
+# Cache do gerenciador uv (opcional, mas recomendado ignorar).
+.uv/
+
+# Estado local do LangGraph Studio (`langgraph dev`). É temporário, não versione.
+.langgraph_api/
