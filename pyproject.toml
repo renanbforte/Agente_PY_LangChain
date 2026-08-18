@@ -40,4 +40,5 @@ dependencies = [
     "langchain-community>=0.4.2",     # SQLDatabaseToolkit (consulta o banco em linguagem natural).
     "fastapi>=0.141.1",
     "uvicorn>=0.52.3",
+    "langchain-mcp-adapters>=0.3.2",
 ]

@@ -1031,6 +1031,88 @@ conversa_id = garantir_conversa(conn, thread_id, owner=login)   # grava o dono
 
 ---
 
+## Passo 20 — Plugar um MCP (ferramentas externas prontas)
+
+**Conceito — o que é MCP.** Até aqui, cada tool foi **escrita por você** (schema → service → `@tool`). O **MCP (Model Context Protocol)** é um "padrão de tomada": um **servidor externo** já expõe ferramentas prontas (ex.: Google Calendar com "criar evento", "listar eventos"), e o seu agente vira um **cliente** que se conecta e ganha essas ferramentas de graça. É como plugar um pendrive de capacidades.
+
+**Como o LangChain consome MCP.** Pelo pacote `langchain-mcp-adapters`. Instale:
+
+```powershell
+uv add langchain-mcp-adapters
+```
+
+### ⚠️ Duas coisas que descobrimos testando (e que mudam o código)
+
+1. **As tools de MCP são ASSÍNCRONAS.** Chamar o agente com o `.invoke` síncrono **falha** (`NotImplementedError: StructuredTool does not support sync invocation`). Você **precisa** usar `await agente.ainvoke(...)` — ou seja, o código que usa MCP é `async`.
+2. **`uvx`/`npx` em pasta na nuvem** (que baixam o servidor MCP) batem no mesmo **`os error 396`** do `uv sync`. A correção é passar `UV_LINK_MODE=copy` no `env` do servidor MCP.
+
+### O padrão reutilizável — `tools/mcp.py` (um "registro" de servidores)
+
+Assim como o `tools/__init__.py` é o registro das suas tools, o `tools/mcp.py` é o **registro dos servidores MCP**. Para **adicionar um MCP novo**, você acrescenta **uma entrada** no dicionário `MCP_SERVERS`:
+
+```python
+# tools/mcp.py (resumo)
+import os
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+_ENV = {**os.environ, "UV_LINK_MODE": "copy"}   # evita o os error 396 no subprocesso
+
+MCP_SERVERS = {
+    "time": {                                    # servidor de exemplo (hora atual, sem login)
+        "command": "uvx", "args": ["mcp-server-time"],
+        "transport": "stdio", "env": _ENV,
+    },
+    # Para ADICIONAR um MCP novo: só mais uma entrada aqui.
+}
+
+async def criar_tools_mcp():                     # ASYNC — as tools de MCP são async
+    client = MultiServerMCPClient(MCP_SERVERS)
+    return await client.get_tools()
+```
+
+### O agente com MCP — `demo_mcp.py` (tudo `async`)
+
+```python
+import asyncio
+from dotenv import load_dotenv
+from langchain.agents import create_agent
+from tools.mcp import criar_tools_mcp
+
+load_dotenv()
+
+async def main():
+    mcp_tools = await criar_tools_mcp()          # pega as tools do MCP
+    agente = create_agent(
+        model="openai:gpt-3.5-turbo",
+        tools=mcp_tools,                         # (num agente real: [*TOOLS, *mcp_tools])
+        system_prompt="Você responde em português. Use as ferramentas quando precisar.",
+    )
+    r = await agente.ainvoke(                    # ainvoke (async), não invoke!
+        {"messages": [{"role": "user", "content": "Que horas são agora em São Paulo?"}]}
+    )
+    print(r["messages"][-1].content)
+
+if __name__ == "__main__":
+    asyncio.run(main())                         # roda o async main de forma síncrona
+```
+
+Rode com `uv run python demo_mcp.py`. A 1ª execução baixa o servidor MCP (demora um pouco) e depois o agente responde a hora usando a ferramenta do MCP.
+
+### Adicionar o Google Calendar (o exemplo real)
+
+O código já está pronto para isso — é só uma entrada nova no `MCP_SERVERS`. A parte trabalhosa é **externa** (não é Python):
+
+1. Instale o **Node.js** (para o `npx`).
+2. No **Google Cloud Console**: crie um projeto, ative a **Calendar API**, crie credenciais **OAuth** e baixe o `credentials.json`. **Guarde-o fora do Git** (é segredo, como o `.env`).
+3. Descomente a entrada `google_calendar` no `tools/mcp.py` e ajuste o caminho do `credentials.json`.
+4. Na 1ª execução, o navegador abre para você **autorizar** o acesso à agenda.
+
+> ⚠️ **Cuidado:** conectar o Google Calendar dá ao agente poder de **criar, alterar e apagar eventos** (efeitos reais). Comece com uma agenda de teste, e trate as credenciais como segredo.
+
+**Padrão para QUALQUER MCP:** instale `langchain-mcp-adapters` → adicione uma entrada em `MCP_SERVERS` → use `await criar_tools_mcp()` e `await agente.ainvoke(...)`. É sempre igual.
+
+---
+
 ## Produção (para colocar em uso, não só teste)
 
 O código atual é ótimo para **aprender e testar**, mas alguns ajustes são necessários antes de expor o webhook a usuários reais.
