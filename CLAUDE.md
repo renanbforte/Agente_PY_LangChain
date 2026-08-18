@@ -28,17 +28,38 @@ Pré-requisitos para RODAR: PostgreSQL rodando + banco `agente_ia` + tabelas
 
 ## Arquivos
 
-- **`agente.py`** — versão TERMINAL (loop). Memória (PostgresSaver), histórico
-  legível (conversas/mensagens), resumos, tools (CNPJ/CEP + SQL), sumarização.
-  Pede o `login` no início; `thread_id = login`, `owner = login`.
-- **`webhook.py`** — versão HTTP (FastAPI). Identidade vem do campo `de` da
-  requisição. Monta o agente POR requisição, escolhendo a conexão SQL conforme
-  `is_master` (master → `postgres` vê tudo; comum → `agente_leitura` + RLS).
+- **`agente.py`** — versão TERMINAL (loop). É **ASYNC** (`asyncio.run(main())`,
+  `await agente.ainvoke`) porque usa **MCP** (tools async). Checkpointer =
+  **`InMemorySaver`** (não `AsyncPostgresSaver`) por causa do conflito de event
+  loop no Windows; o histórico (conversas/mensagens/resumos) ainda persiste via a
+  conexão SÍNCRONA `psycopg.connect`. Tem CNPJ/CEP + SQL + MCP + sumarização.
+  Pede `login`; `thread_id = login`, `owner = login`.
+- **`webhook.py`** — versão HTTP (FastAPI), **síncrona** (`invoke`). Identidade
+  vem do campo `de`. Monta o agente POR requisição; SQL conforme `is_master`
+  (master → `postgres` vê tudo; comum → `agente_leitura` + RLS).
+- **`demo_mcp.py`** — exemplo async mínimo de agente com MCP (o "molde").
 - **`tools/`** — pacote de tools. Padrão: **schema (Pydantic) → service → `@tool`**.
-  `__init__.py` exporta `TOOLS` + `tratar_erros_de_tool`. `_shared.py` (HTTP com
-  timeout/erro), `cnpj.py` (BrasilAPI + fallback minhareceita), `cep.py` (ViaCEP),
-  `error_handling.py` (`wrap_tool_call` middleware), `sql.py` (SQLDatabaseToolkit).
+  `__init__.py` exporta `TOOLS` + `tratar_erros_de_tool`. `_shared.py` (HTTP),
+  `cnpj.py` (BrasilAPI + fallback), `cep.py` (ViaCEP), `sql.py` (SQLDatabaseToolkit),
+  `mcp.py` (registro `MCP_SERVERS` + `criar_tools_mcp` async), `error_handling.py`
+  (middleware `TratarErrosDeTool` — subclasse de `AgentMiddleware` com `wrap_tool_call`
+  E `awrap_tool_call`, para servir tanto `invoke` quanto `ainvoke`).
 - **`sql/`** — 01 tabelas, 02 usuário só-leitura, 03 RLS, consultar (JOIN).
+
+## MCP e async
+
+- **MCP** (`langchain-mcp-adapters`): `MultiServerMCPClient(MCP_SERVERS)` +
+  `await client.get_tools()` (async). Adicionar um MCP = 1 entrada no `MCP_SERVERS`.
+- **Tools de MCP são async-only** → o agente precisa de `ainvoke` (o `invoke`
+  síncrono dá `NotImplementedError`).
+- Com `ainvoke`, TODO componente precisa de versão async: checkpointer
+  (`InMemorySaver` ou `AsyncPostgresSaver`), middleware (`awrap_tool_call`).
+- **Windows:** `AsyncPostgresSaver` (psycopg async) exige `SelectorEventLoop`;
+  MCP stdio (subprocesso) exige `ProactorEventLoop` — não convivem. Por isso o
+  `agente.py` usa `InMemorySaver`. No Linux/Mac ou com MCP via HTTP, não há conflito.
+- `env` do servidor MCP inclui `UV_LINK_MODE=copy` (evita os error 396 no uvx/npx).
+- Credenciais Google Calendar: tipo **Desktop app** (chave `"installed"`, não `"web"`),
+  e-mail em "Usuários de teste" (senão 403). `credentials.json`/tokens = segredo.
 
 ## Convenções
 

@@ -1100,16 +1100,87 @@ Rode com `uv run python demo_mcp.py`. A 1ª execução baixa o servidor MCP (dem
 
 ### Adicionar o Google Calendar (o exemplo real)
 
-O código já está pronto para isso — é só uma entrada nova no `MCP_SERVERS`. A parte trabalhosa é **externa** (não é Python):
+O código já está pronto — é só uma entrada nova no `MCP_SERVERS`. A parte trabalhosa é **externa** (no site do Google, não em Python).
 
-1. Instale o **Node.js** (para o `npx`).
-2. No **Google Cloud Console**: crie um projeto, ative a **Calendar API**, crie credenciais **OAuth** e baixe o `credentials.json`. **Guarde-o fora do Git** (é segredo, como o `.env`).
-3. Descomente a entrada `google_calendar` no `tools/mcp.py` e ajuste o caminho do `credentials.json`.
-4. Na 1ª execução, o navegador abre para você **autorizar** o acesso à agenda.
+**Entenda o OAuth:** você não dá sua senha do Google ao agente. Você autoriza o app **na tela do Google**, que devolve um **token** com acesso só à sua agenda. Duas peças: o `credentials.json` (identifica o app) e o token (sua permissão, gerada ao autorizar).
 
-> ⚠️ **Cuidado:** conectar o Google Calendar dá ao agente poder de **criar, alterar e apagar eventos** (efeitos reais). Comece com uma agenda de teste, e trate as credenciais como segredo.
+1. **Node.js** (para o `npx`): `winget install --id=OpenJS.NodeJS -e` → reabra o terminal → teste `npx --version`.
+2. **Google Cloud Console** (https://console.cloud.google.com):
+   - Crie um projeto e **ative a Google Calendar API** (APIs e serviços → Biblioteca).
+   - **Tela de permissão OAuth** → tipo **Externo** → em **"Usuários de teste"** adicione o **seu e-mail**. ⚠️ Sem isso, dá **erro 403** na autorização.
+   - **Credenciais** → Criar → **ID do cliente OAuth** → tipo **"App para computador" (Desktop app)**. ⚠️ **NÃO** "Aplicativo da Web" (que gera a chave `"web"`; o servidor exige a chave `"installed"`). Baixe o JSON.
+   - Salve como `C:\Users\voce\google_credentials.json` (**fora** do projeto/Git — é segredo).
+3. **Autorize uma vez** (abre o navegador):
+   ```powershell
+   $env:GOOGLE_OAUTH_CREDENTIALS="C:\Users\voce\google_credentials.json"
+   npx @cocal/google-calendar-mcp auth
+   ```
+   (Se aparecer "app não verificado": **Avançado → Continuar**.)
+4. **Descomente** a entrada `google_calendar` no `tools/mcp.py` (Ctrl+/ nas 5 linhas) e ajuste o caminho.
 
-**Padrão para QUALQUER MCP:** instale `langchain-mcp-adapters` → adicione uma entrada em `MCP_SERVERS` → use `await criar_tools_mcp()` e `await agente.ainvoke(...)`. É sempre igual.
+> ⚠️ **Segurança:** o agente passa a **criar/alterar/apagar** eventos (efeitos reais) — comece com uma agenda de teste. `credentials.json` e tokens são **segredo** (fora do Git).
+
+**Padrão para QUALQUER MCP:** instale `langchain-mcp-adapters` → adicione uma entrada em `MCP_SERVERS` → use o agente **assíncrono** (`await agente.ainvoke(...)`). É sempre igual.
+
+---
+
+## Agente síncrono × assíncrono (qual usar?)
+
+O MCP forçou o agente a virar **assíncrono** — vale entender a diferença, porque é uma decisão importante.
+
+- **Síncrono (`agente.invoke`)** — o programa faz **uma coisa de cada vez**, em ordem, e **espera** cada passo terminar antes do próximo. É a fila de banco com um caixa só: simples de ler e depurar.
+- **Assíncrono (`await agente.ainvoke`)** — o programa pode **esperar sem travar**: enquanto uma operação de espera (rede, subprocesso) não termina, o "loop de eventos" cuida de outra coisa. É o garçom que, enquanto a cozinha prepara um prato, atende outra mesa.
+
+**Quando usar SÍNCRONO:**
+- Scripts simples, terminal de um usuário só.
+- Todas as tools são síncronas (CNPJ, CEP, SQL).
+- Você quer o código mais **fácil de ler e depurar**. *(Comece sempre aqui.)*
+
+**Quando usar ASSÍNCRONO:**
+- Você usa **tools assíncronas** — como as de **MCP** (elas SÓ funcionam com `ainvoke`). É o motivo nº 1 aqui.
+- Você precisa de **concorrência real**: um servidor (webhook) atendendo **muitos usuários ao mesmo tempo** sem um travar o outro.
+- O trabalho é "de espera" (muita rede/I/O), onde o async aproveita melhor o tempo ocioso.
+
+**A regra deste projeto:** sem MCP → fique no **síncrono** (mais simples). Com MCP → o agente **precisa** ser assíncrono. Não é "async é melhor"; é "async quando a ferramenta ou a escala pedem". O custo do async: **tudo** precisa ter versão async (você verá no Passo 21).
+
+---
+
+## Passo 21 — Conectar o MCP no agente principal (converter para async)
+
+Ligar o MCP no `agente.py` é **convertê-lo para assíncrono**. As mudanças (procure `# [ASYNC]` no arquivo):
+
+1. `import asyncio`.
+2. Todo o corpo vira **`async def main()`**.
+3. `mcp_tools = await criar_tools_mcp()`.
+4. `tools=[*TOOLS, *sql_tools, *mcp_tools]`.
+5. Trocar o invoke por **`await agente.ainvoke(...)`**.
+6. No fim: `asyncio.run(main())`.
+
+Duas peças precisaram de ajuste especial:
+
+### Checkpointer + o conflito do Windows
+
+O `ainvoke` exige um checkpointer **async**. O async do PostgreSQL (`AsyncPostgresSaver`) exige o `SelectorEventLoop`; os servidores **MCP (subprocessos)** exigem o `ProactorEventLoop` — e **no Windows os dois não convivem** (o Selector não roda subprocessos). Solução: usar o **`InMemorySaver`** (memória do agente em RAM), que funciona no loop padrão.
+
+> A memória **de contexto** do agente some ao reabrir. MAS as tabelas `conversas`/`mensagens`/`resumos` **continuam persistindo**, porque usam a conexão **síncrona** (`psycopg.connect`), sem o conflito. (No Linux/Mac, ou rodando o MCP via HTTP, dá para ter `AsyncPostgresSaver` + MCP com persistência total.)
+
+### Middleware de erro (sync E async)
+
+O atalho `@wrap_tool_call` cria só a versão **síncrona**. Com `ainvoke`, o agente exige também a **assíncrona** (`awrap_tool_call`). Solução: subclassar `AgentMiddleware` com as **duas** versões — assim o mesmo middleware serve o `agente.py` (async) e o `webhook.py` (sync):
+
+```python
+class TratarErrosDeTool(AgentMiddleware):
+    def wrap_tool_call(self, request, handler):          # síncrona (invoke)
+        try: return handler(request)
+        except Exception as e: return _mensagem_de_erro(request, e)
+    async def awrap_tool_call(self, request, handler):    # assíncrona (ainvoke)
+        try: return await handler(request)
+        except Exception as e: return _mensagem_de_erro(request, e)
+
+tratar_erros_de_tool = TratarErrosDeTool()
+```
+
+Pronto: `uv run python agente.py` sobe o agente com CNPJ + CEP + SQL + **Google Calendar**, tudo junto. Teste: *"marque na minha agenda hoje às 18h uma reunião teste"*.
 
 ---
 
@@ -1192,6 +1263,20 @@ $env:PYTHONIOENCODING="utf-8"; uv run python agente.py
 ```
 
 **(g) A sumarização não gera resumo.** Faltou o `keep` **menor** que o `trigger`. Se o `keep` (padrão 20) for maior que o histórico no momento do gatilho, ele dispara mas **não compacta nada**. Ajuste, ex.: `trigger=("messages", 6)` com `keep=("messages", 2)`.
+
+**(h) MCP: `StructuredTool does not support sync invocation`.** As tools de MCP são **assíncronas** — use `await agente.ainvoke(...)`, não o `invoke` síncrono.
+
+**(i) MCP: `McpError: Connection closed`.** Um servidor MCP **não subiu**. Como o `get_tools()` inicia TODOS os servidores juntos, **um falho derruba todos**. Isole: rode o servidor "na mão" para ver o erro real (ex.: `npx -y @cocal/google-calendar-mcp`). Causa comum: você comentou uma entrada **pela metade** (deixou o `},` sem `#`) — comente/descomente o bloco **inteiro** (Ctrl+/).
+
+**(j) MCP: `os error 396` no `uvx`/`npx`.** Mesmo problema de nuvem do `uv sync`. Passe `UV_LINK_MODE=copy` no `env` do servidor MCP (já está no `tools/mcp.py` via `_ENV`).
+
+**(k) Async: `NotImplementedError: awrap_tool_call ... not available`.** Seu middleware só tem a versão **síncrona** (`@wrap_tool_call`), mas o agente rodou em async. Subclasse `AgentMiddleware` com `wrap_tool_call` **e** `awrap_tool_call` (Passo 21).
+
+**(l) Async no Windows: `Psycopg cannot use the 'ProactorEventLoop'`.** Conflito entre o `AsyncPostgresSaver` (quer `SelectorEventLoop`) e os subprocessos do MCP (querem `ProactorEventLoop`). Use o `InMemorySaver` com MCP no Windows (Passo 21).
+
+**(m) Google Calendar: `Invalid credentials file format ... "installed"`.** Seu `credentials.json` é do tipo **"Aplicativo da Web"** (chave `"web"`). Crie a credencial como **"App para computador" (Desktop app)** — o JSON terá a chave `"installed"`.
+
+**(n) Google Calendar: `Erro 403: access_denied`.** Seu app OAuth está em "Teste" e seu e-mail não é testador. Adicione-o em **Tela de permissão OAuth → Usuários de teste**.
 
 ---
 
