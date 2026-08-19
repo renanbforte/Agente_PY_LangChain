@@ -28,6 +28,45 @@ Pronto? Vamos.
 
 ---
 
+## 🚀 Por onde começar (LEIA ISTO PRIMEIRO)
+
+Este guia serve para **dois objetivos** — escolha o seu:
+
+- **🏃 Ver funcionando rápido:** faça o **Setup base** abaixo e vá direto ao **Passo 1** (um agente mínimo que roda só com a chave da OpenAI). Em poucos minutos você já conversa com um agente. Depois adicione o que quiser.
+- **🎓 Montar do zero (aprender):** faça o **Setup base** e siga os **Passos 1 → 21 na ordem**, construindo cada arquivo com as próprias mãos. ⚠️ **Os arquivos deste repositório são o "gabarito" — a versão FINAL e avançada** (async, MCP, RLS…). Construa os SEUS do zero seguindo os passos e use os do repo só para **comparar**. Não tente rodar o `agente.py`/`webhook.py` finais logo de cara: eles já exigem TUDO (banco + RLS + MCP) e vão travar.
+
+### Setup base (faça UMA vez, NESTA ordem)
+
+Vale para os dois caminhos. Os detalhes de cada item estão na **seção 1** logo abaixo.
+
+1. **Instalar** o `uv` e o **PostgreSQL 18** (Node.js só depois, se for usar MCP).
+2. **Criar o banco:** `psql -U postgres -c "CREATE DATABASE agente_ia;"`
+3. **Criar as tabelas:** `psql -U postgres -d agente_ia -f sql\01_criar_tabelas.sql`
+4. **Criar o `.env`:** `Copy-Item .env.example .env` → preencha (no mínimo `OPENAI_API_KEY` e `DATABASE_URL`).
+5. **Instalar dependências:** `uv sync` (em pasta de nuvem: `uv sync --link-mode=copy`).
+6. **Rodar:** um agente mínimo (Passo 1) já deve funcionar.
+
+> ⚠️ **Não faça agora:** o `sql/02` e `sql/03`, a variável `DATABASE_URL_RO`, o Node.js e as
+> credenciais do Google. Eles só entram **quando você chegar** na parte de SQL/multi-usuário/MCP
+> (bem mais pra frente). Fazer tudo de uma vez é o que trava o iniciante.
+
+### O que é ESSENCIAL × OPCIONAL (o que dá para pular no começo)
+
+| Bloco | Passos | Precisa de | Quando fazer |
+|---|---|---|---|
+| **Agente básico** (essencial) | 1–5 | OpenAI + banco + tabelas | **Comece aqui** |
+| Ferramentas (CNPJ/CEP) | 6–10 | `requests` | Depois do básico |
+| Consulta SQL em linguagem natural | 11 | `langchain-community` + `DATABASE_URL_RO` | Opcional |
+| Observabilidade (LangSmith) | 12 | chave LangSmith | Opcional |
+| Sumarização | 13 | — | Opcional |
+| Segurança + multi-usuário (RLS) | 14–19 | `sql/02`, `sql/03` | Avançado |
+| Webhook + chat web | seções finais | `fastapi`, `uvicorn` | Avançado |
+| MCP (Google Calendar) | 20–21 | Node.js + OAuth Google | Bem no fim (mais trabalhoso) |
+
+**Regra de ouro:** faça os **Passos 1–5** primeiro e tenha um agente rodando. **Só então** adicione **um bloco de cada vez, testando após cada um.** Nunca monte tudo de uma vez.
+
+---
+
 ## 1. Pré-requisitos e instalação
 
 Ambiente assumido neste guia: **Windows**, terminal **PowerShell**, editor **VS Code**, gerenciador de pacotes **`uv`**, banco **PostgreSQL 18** e modelo **OpenAI `gpt-3.5-turbo`**.
